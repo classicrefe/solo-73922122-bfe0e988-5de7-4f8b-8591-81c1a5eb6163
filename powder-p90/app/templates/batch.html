@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h2>批号 {{ name }} 的全部已入库档表</h2>
+  <p class="muted">共 {{ tables|length }} 张档表，均已通过两两/整体相容性校验，可由同一组粒径产生。</p>
+  {% for t in tables %}
+  <h3 style="font-size:14px;margin:16px 0 6px">档表 #{{ t.meta.id }}
+    <span class="pill">{{ t.meta.total }} 粒</span>
+    {% if t.meta.note %}<span class="pill">{{ t.meta.note }}</span>{% endif %}
+    <span class="pill">{{ t.meta.created_at }}</span>
+  </h3>
+  <table>
+    <thead><tr><th class="l">档区间 [lo, hi]（微米）</th><th>粒数</th></tr></thead>
+    <tbody>
+    {% for b in t.bins %}
+      <tr><td class="l">[{{ b.lo }}, {{ b.hi }}]</td><td>{{ b.count }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endfor %}
+  <p style="margin-top:16px"><a href="{{ url_for('index') }}">← 返回首页</a></p>
+</div>
+{% endblock %}

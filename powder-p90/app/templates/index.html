@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h2>① 上传 / 补报档表</h2>
+  <form method="post" action="{{ url_for('upload') }}">
+    <p>
+      <label>批号：<input type="text" name="batch_name" required placeholder="例如 B2026-11A"></label>
+      <label class="muted">备注（可选）：<input type="text" name="note" placeholder="例如 初报/激光法补报" style="width:260px"></label>
+    </p>
+    <p class="muted">每行一档：<code>lo hi count</code>，空格或逗号分隔；档须连续排列、互不重叠、首尾相接；粒数非负、整表至少一粒。可含一行非整数表头。</p>
+    <textarea name="table_text" rows="7" required
+placeholder="lo hi count
+0 9 120
+10 19 350
+20 29 280
+30 39 50"></textarea>
+    <p style="margin-top:10px"><button type="submit">提交档表</button>
+       <span class="muted">批号已存在时按补报处理，系统先校验与该批全部已入库档表的相容性。</span></p>
+  </form>
+</div>
+
+<form method="post" action="{{ url_for('compute') }}">
+<div class="card">
+  <h2>② 勾选批次并核算合并 P90</h2>
+  {% if batches %}
+  <table>
+    <thead><tr><th style="width:40px">选</th><th class="l">批号</th><th>已入库档表数</th><th>总粒数（每表一致）</th><th>创建时间</th><th class="l">操作</th></tr></thead>
+    <tbody>
+    {% for b in batches %}
+      <tr>
+        <td><input type="checkbox" name="batch_ids" value="{{ b.id }}"></td>
+        <td class="l">{{ b.name }}</td>
+        <td>{{ b.table_count }}</td>
+        <td>{{ b.total }}</td>
+        <td>{{ b.created_at }}</td>
+        <td class="l"><a href="{{ url_for('batch_detail', batch_id=b.id) }}">查看档表</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p style="margin-top:12px"><button type="submit">核算合并 P90 最紧界</button>
+     <span class="muted">P90 = 升序第 ⌈0.9×总粒数⌉ 粒；结果附两份达到端点的逐批粒径频数见证。</span></p>
+  {% else %}
+  <p class="muted">还没有任何批次，请先在上方上传档表。</p>
+  {% endif %}
+</div>
+</form>
+{% endblock %}

@@ -1,0 +1,19 @@
+services:
+  web:
+    build: .
+    container_name: powder-p90
+    ports:
+      - "8000:8000"
+    volumes:
+      - powder-data:/app/data
+    environment:
+      POWDER_DB: /app/data/powder.db
+      SECRET_KEY: demo-secret
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  powder-data:

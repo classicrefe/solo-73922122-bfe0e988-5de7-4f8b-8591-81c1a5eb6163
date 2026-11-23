@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h2>合并 P90 核算结果</h2>
+  <p>
+    参与批次：
+    {% for bid in ids %}<span class="pill">{{ names[bid] }}（#{{ bid }}）</span>{% endfor %}
+  </p>
+  <p class="muted">合并总粒数 <b>{{ total }}</b>（按档求和，未逐粒展开）；
+     k = ⌈0.9 × {{ total }}⌉ = <b>{{ k }}</b>，P90 即升序第 {{ k }} 粒的粒径。</p>
+  <p class="bound">P90 最紧下界（最小可能值）：<b>{{ p90_low }}</b> 微米</p>
+  <p class="bound">P90 最紧上界（最大可能值）：<b>{{ p90_high }}</b> 微米</p>
+  <p class="muted">含义：在所有满足各批全部已入库档表的粒子组中，合并 P90 可取到的最小值与最大值；
+     两份见证分别真实达到这两个端点。</p>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h2>下界见证 · 逐批粒径频数</h2>
+    <p class="muted">各批粒子尽量靠左放置，合并后第 {{ k }} 粒恰为 <b>{{ p90_low }}</b>。</p>
+    {% for w in witness_low %}
+    <h3 style="font-size:13px;margin:10px 0 4px">{{ w.batch_name }}（合计 {{ w.total }} 粒）</h3>
+    <table>
+      <thead><tr><th class="l">粒径（微米）</th><th>粒数</th></tr></thead>
+      <tbody>
+      {% for r in w.rows %}<tr><td class="l">{{ r.size }}</td><td>{{ r.count }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+    {% endfor %}
+  </div>
+
+  <div class="card">
+    <h2>上界见证 · 逐批粒径频数</h2>
+    <p class="muted">各批粒子尽量靠右放置，合并后第 {{ k }} 粒恰为 <b>{{ p90_high }}</b>。</p>
+    {% for w in witness_high %}
+    <h3 style="font-size:13px;margin:10px 0 4px">{{ w.batch_name }}（合计 {{ w.total }} 粒）</h3>
+    <table>
+      <thead><tr><th class="l">粒径（微米）</th><th>粒数</th></tr></thead>
+      <tbody>
+      {% for r in w.rows %}<tr><td class="l">{{ r.size }}</td><td>{{ r.count }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+    {% endfor %}
+  </div>
+</div>
+
+<p><a href="{{ url_for('index') }}">← 返回首页</a></p>
+{% endblock %}
