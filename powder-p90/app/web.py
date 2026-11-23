@@ -1,24 +1,26 @@
 """Flask 网页：按批号上传/补报档表，勾选批次核算合并 P90 最紧界。"""
 from __future__ import annotations
 
+import logging
 import os
+import sqlite3
 from dataclasses import asdict
 
 from flask import Flask, flash, redirect, render_template, request, url_for
 
-from .core import BinTableError, compatible, merge_p90
+from .core import BinTableError, merge_p90
 from .db import (
+    add_table_to_batch,
     connect,
-    create_batch,
-    get_batch_by_name,
     init_db,
-    insert_table,
     list_batches,
     list_tables,
     load_batch_tables,
     load_table,
     parse_and_preview,
 )
+
+log = logging.getLogger(__name__)
 
 
 def create_app(db_path: str | None = None) -> Flask:
@@ -50,34 +52,34 @@ def create_app(db_path: str | None = None) -> Flask:
             flash(f"档表解析失败，未入库：{exc}", "error")
             return redirect(url_for("index"))
 
-        with connect(app.config["DB_PATH"]) as conn:
-            row = get_batch_by_name(conn, name)
-            if row is None:
-                batch_id = create_batch(conn, name)
-                table_id = insert_table(conn, batch_id, table, note)
-                flash(
-                    f"新批 {name} 已创建，档表 #{table_id} 入库：{len(table.bins)} 档、"
-                    f"{table.total} 粒",
-                    "ok",
-                )
-            else:
-                batch_id = int(row["id"])
-                existing = load_batch_tables(conn, batch_id)
-                ok, reason = compatible(existing + [table])
-                if not ok:
-                    # 补报失败：不写入，后续核算仍只按此前已入库档表
-                    flash(
-                        f"补报被拒绝（与批 {name} 已入库的 {len(existing)} 张档表不相容）："
-                        f"{reason}。本次上传未入库，核算仍按原档表进行。",
-                        "error",
-                    )
-                    return redirect(url_for("index"))
-                table_id = insert_table(conn, batch_id, table, note)
-                flash(
-                    f"批 {name} 补报成功：档表 #{table_id} 与已有 {len(existing)} 张档表相容，"
-                    f"现共 {len(existing) + 1} 张档表、{table.total} 粒",
-                    "ok",
-                )
+        try:
+            outcome = add_table_to_batch(app.config["DB_PATH"], name, table, note)
+        except (sqlite3.DatabaseError, OSError) as exc:
+            # 锁等待超时、磁盘/权限等基础设施故障：不返回 500，提示稍后重试
+            log.exception("upload for batch %r failed", name)
+            flash(f"系统繁忙，本次上传未确认入库，请稍后重试：{exc}", "error")
+            return redirect(url_for("index"))
+
+        if not outcome.ok:
+            # 补报失败：不写入，后续核算仍只按此前已入库档表
+            flash(
+                f"补报被拒绝（与批 {name} 已入库的 {outcome.existing_count} 张档表不相容）："
+                f"{outcome.reason}。本次上传未入库，核算仍按原档表进行。",
+                "error",
+            )
+        elif outcome.created_batch:
+            flash(
+                f"新批 {name} 已创建，档表 #{outcome.table_id} 入库：{len(table.bins)} 档、"
+                f"{table.total} 粒",
+                "ok",
+            )
+        else:
+            flash(
+                f"批 {name} 补报成功：档表 #{outcome.table_id} 与已有 "
+                f"{outcome.existing_count} 张档表相容，"
+                f"现共 {outcome.existing_count + 1} 张档表、{table.total} 粒",
+                "ok",
+            )
         return redirect(url_for("index"))
 
     @app.route("/batch/<int:batch_id>")
@@ -95,27 +97,19 @@ def create_app(db_path: str | None = None) -> Flask:
             name = next((b["name"] for b in batches if b["id"] == batch_id), str(batch_id))
         return render_template("batch.html", name=name, batch_id=batch_id, tables=tables)
 
-    @app.route("/compute", methods=["POST"])
-    def compute():
-        ids = [int(x) for x in request.form.getlist("batch_ids")]
-        if not ids:
-            flash("请至少勾选一个批次", "error")
-            return redirect(url_for("index"))
-        with connect(app.config["DB_PATH"]) as conn:
+    def _compute_context(db_path: str, ids: list[int]):
+        with connect(db_path) as conn:
             all_batches = {int(r["id"]): dict(r) for r in list_batches(conn)}
             missing = [i for i in ids if i not in all_batches]
             if missing:
-                flash(f"批次不存在：{missing}", "error")
-                return redirect(url_for("index"))
+                return f"批次不存在：{missing}"
             batch_tables = [(bid, load_batch_tables(conn, bid)) for bid in ids]
             if any(not ts for _, ts in batch_tables):
-                flash("所选批次中存在没有任何档表的批，无法核算", "error")
-                return redirect(url_for("index"))
+                return "所选批次中存在没有任何档表的批，无法核算"
             try:
                 result = merge_p90(batch_tables)
             except BinTableError as exc:
-                flash(f"核算失败：{exc}", "error")
-                return redirect(url_for("index"))
+                return f"核算失败：{exc}"
 
             # 逐批见证频数整理为有序列表，并附每批名称
             def witness_rows(witness):
@@ -135,7 +129,7 @@ def create_app(db_path: str | None = None) -> Flask:
                     )
                 return out
 
-            ctx = {
+            return {
                 "names": {bid: all_batches[bid]["name"] for bid in ids},
                 "ids": ids,
                 "total": result.total,
@@ -145,6 +139,26 @@ def create_app(db_path: str | None = None) -> Flask:
                 "witness_low": witness_rows(result.witness_low),
                 "witness_high": witness_rows(result.witness_high),
             }
+
+    @app.route("/compute", methods=["POST"])
+    def compute():
+        try:
+            ids = [int(x) for x in request.form.getlist("batch_ids")]
+        except ValueError:
+            flash("批次编号无效", "error")
+            return redirect(url_for("index"))
+        if not ids:
+            flash("请至少勾选一个批次", "error")
+            return redirect(url_for("index"))
+        try:
+            ctx = _compute_context(app.config["DB_PATH"], ids)
+        except sqlite3.DatabaseError as exc:
+            log.exception("compute failed")
+            flash(f"系统繁忙，核算暂时无法完成，请稍后重试：{exc}", "error")
+            return redirect(url_for("index"))
+        if isinstance(ctx, str):  # 校验失败消息
+            flash(ctx, "error")
+            return redirect(url_for("index"))
         return render_template("result.html", **ctx)
 
     return app

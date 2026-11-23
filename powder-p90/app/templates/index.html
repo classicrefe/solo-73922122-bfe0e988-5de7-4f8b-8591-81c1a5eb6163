@@ -15,7 +15,8 @@ placeholder="lo hi count
 20 29 280
 30 39 50"></textarea>
     <p style="margin-top:10px"><button type="submit">提交档表</button>
-       <span class="muted">批号已存在时按补报处理，系统先校验与该批全部已入库档表的相容性。</span></p>
+       <span class="muted">新批号只建一个批次；批号已存在时按补报处理，系统先校验该张表与当时库内
+       该批<b>全部</b>已入库档表的相容性。相容则入库，否则整张退回并在上方提示冲突。</span></p>
   </form>
 </div>
 

@@ -2,6 +2,10 @@ services:
   web:
     build: .
     container_name: powder-p90
+    # 固定两个 gunicorn 工作进程（与 Dockerfile CMD 一致），用于演示跨进程并发。
+    # 批号锁是文件锁，跨进程/跨线程均生效。
+    command: ["gunicorn", "--workers", "2", "--bind", "0.0.0.0:8000",
+              "--access-logfile", "-", "app.main:app"]
     ports:
       - "8000:8000"
     volumes:
@@ -14,6 +18,8 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+      start_period: 5s
+    restart: unless-stopped
 
 volumes:
   powder-data:
